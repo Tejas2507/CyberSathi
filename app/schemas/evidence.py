@@ -18,9 +18,19 @@ class CollectorResult(BaseModel):
 
 class WebsiteEvidence(BaseModel):
     title: Optional[str] = None
+    original_url: Optional[str] = None
+    final_url: Optional[str] = None
     status_code: Optional[int] = None
-    response_time_ms: Optional[float] = None
+    response_headers: Dict[str, str] = Field(default_factory=dict)
+    cookies: Dict[str, str] = Field(default_factory=dict)
+    redirect_chain: List[str] = Field(default_factory=list)
+    response_html: Optional[str] = None
+    response_size: Optional[int] = None
+    response_encoding: Optional[str] = None
     server: Optional[str] = None
+    content_type: Optional[str] = None
+    elapsed_time: Optional[float] = None
+    response_time_ms: Optional[float] = None
 
 class SSLEvidence(BaseModel):
     ssl_valid: bool = False
