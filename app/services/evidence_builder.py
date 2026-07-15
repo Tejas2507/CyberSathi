@@ -96,20 +96,33 @@ class EvidenceBuilder:
             timestamp=datetime.now(timezone.utc)
         )
         
-        # Determine raw, rendered and primary HTML + texts
-        raw_html = website.response_html if website else None
-        rendered_html = playwright.rendered_html if playwright else None
+        # Resolve URL and Classifier Master Fields
+        original_url = url
+        final_url = playwright.final_url if playwright and playwright.final_url else (website.final_url if website and website.final_url else url)
         
-        # Policy: If Playwright succeeds, rendered HTML becomes the primary HTML source.
-        # Else, automatically fall back to WebsiteCollector HTML.
-        primary_html = rendered_html if (playwright and rendered_html) else raw_html
+        classifier_name = None
+        classifier_probability = None
+        classifier_confidence = None
+        classifier_label = None
         
+        if prediction_result:
+            classifier_name = prediction_result.model_version
+            classifier_probability = prediction_result.risk_score
+            classifier_confidence = prediction_result.confidence
+            classifier_label = "phishing" if prediction_result.is_suspicious else "legitimate"
+            
         raw_visible_text = html.visible_text if html else None
         rendered_visible_text = playwright.visible_text if playwright else None
         
         viewport_screenshot_path = playwright.screenshot_path if playwright else None
         fullpage_screenshot_path = playwright.full_page_screenshot_path if playwright else None
         
+        # Strip large raw and rendered HTML strings from submodels in final Evidence object
+        if website:
+            website.response_html = None
+        if playwright:
+            playwright.rendered_html = None
+            
         return Evidence(
             url=url,
             prediction_result=prediction_result,
@@ -124,9 +137,12 @@ class EvidenceBuilder:
             screenshot=screenshot,
             playwright=playwright,
             ocr=ocr,
-            raw_html=raw_html,
-            rendered_html=rendered_html,
-            primary_html=primary_html,
+            original_url=original_url,
+            final_url=final_url,
+            classifier_name=classifier_name,
+            classifier_probability=classifier_probability,
+            classifier_confidence=classifier_confidence,
+            classifier_label=classifier_label,
             raw_visible_text=raw_visible_text,
             rendered_visible_text=rendered_visible_text,
             viewport_screenshot_path=viewport_screenshot_path,

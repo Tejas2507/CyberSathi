@@ -173,10 +173,15 @@ class Evidence(BaseModel):
     playwright: Optional[PlaywrightEvidence] = Field(default=None, description="Playwright browser rendering details")
     ocr: Optional[OCREvidence] = Field(default=None, description="OCR text extracted from screenshot details")
     
-    # Authoritative HTML & Rendering fields for LLM Consumption
-    raw_html: Optional[str] = Field(default=None, description="Raw HTML response from WebsiteCollector")
-    rendered_html: Optional[str] = Field(default=None, description="Fully rendered DOM HTML from PlaywrightCollector")
-    primary_html: Optional[str] = Field(default=None, description="Authoritative HTML (rendered DOM if available, else raw)")
+    # URL and Classifier Master Fields
+    original_url: Optional[str] = Field(default=None, description="The original input URL")
+    final_url: Optional[str] = Field(default=None, description="The final resolved URL after all redirects")
+    classifier_name: Optional[str] = Field(default=None, description="URL Classifier model version")
+    classifier_probability: Optional[float] = Field(default=None, description="URL Classifier risk score probability")
+    classifier_confidence: Optional[float] = Field(default=None, description="URL Classifier confidence score")
+    classifier_label: Optional[str] = Field(default=None, description="URL Classifier safety label")
+    
+    # Authoritative texts and screenshots paths
     raw_visible_text: Optional[str] = Field(default=None, description="Visible text from raw HTML")
     rendered_visible_text: Optional[str] = Field(default=None, description="Visible text from rendered DOM")
     viewport_screenshot_path: Optional[str] = Field(default=None, description="Path to standard viewport screenshot")

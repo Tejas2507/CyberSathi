@@ -10,6 +10,7 @@ class ClassifierResult(BaseModel):
     is_suspicious: bool = Field(..., description="Fast ML classifier verdict")
     risk_score: float = Field(..., description="Classifier probability score between 0.0 and 1.0")
     model_version: str = Field(..., description="Identifier of the model version used")
+    confidence: Optional[float] = Field(default=None, description="Classifier confidence score")
 
 class WhoisData(BaseModel):
     registrar: Optional[str] = None
