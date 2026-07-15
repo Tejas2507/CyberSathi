@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.0
 
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-3.5-flash"
+    GEMINI_MODEL: str = "gemini-flash-latest"
 
     PHISHING_DB_PATH: str = "confirmed_phishing.db"
     PHISHING_CONFIDENCE_THRESHOLD: float = 0.95
