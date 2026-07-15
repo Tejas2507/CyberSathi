@@ -26,10 +26,16 @@ class Settings(BaseSettings):
     HTTP_REQUEST_TIMEOUT_SEC: int = 10
     MAX_DNS_LOOKUP_RETRY: int = 3
 
-    LLM_PROVIDER: str = "openai"
-    LLM_API_KEY: str = "your_api_key_here"
+    LLM_PROVIDER: str = "gemini"
+    LLM_API_KEY: str = ""
     LLM_MODEL: str = "gpt-4o"
     LLM_TEMPERATURE: float = 0.0
+
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+
+    PHISHING_DB_PATH: str = "confirmed_phishing.db"
+    PHISHING_CONFIDENCE_THRESHOLD: float = 0.95
 
     BACKEND_CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:3000", "http://localhost:8000"]
 

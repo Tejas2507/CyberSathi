@@ -1,4 +1,6 @@
+# ─────────────────────────────────────────
 # Python
+# ─────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,38 +24,92 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual Environment
+# ─────────────────────────────────────────
+# Virtual Environments
+# ─────────────────────────────────────────
 .venv/
 venv/
 ENV/
 env/
 active_env/
 
-# IDEs
+# ─────────────────────────────────────────
+# IDE / Editor
+# ─────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
-.DS_Store
+*.sublime-project
+*.sublime-workspace
 
-# Environment variables
+# ─────────────────────────────────────────
+# OS
+# ─────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ─────────────────────────────────────────
+# Environment Variables
+# ─────────────────────────────────────────
 .env
 .env.*
 !.env.example
 
-# Playwright & Browsers
+# ─────────────────────────────────────────
+# Playwright & Browser Automation
+# ─────────────────────────────────────────
 .py_playwright/
+playwright-report/
+test-results/
 
-# Cache directories
+# ─────────────────────────────────────────
+# Cache Directories
+# ─────────────────────────────────────────
 .cache/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Logging
+# ─────────────────────────────────────────
+# Logs
+# ─────────────────────────────────────────
 *.log
+logs/
 
+# ─────────────────────────────────────────
+# Transient Artifacts
+# (screenshots, HTML dumps, rendered pages)
+# ─────────────────────────────────────────
+artifacts/
+artifacts/screenshots/
+artifacts/rendered_html/
+artifacts/html/
+
+# ─────────────────────────────────────────
+# Database (runtime, not schema)
+# ─────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ─────────────────────────────────────────
+# Benchmark outputs (runtime)
+# ─────────────────────────────────────────
+scripts/benchmark_results.json
+
+# ─────────────────────────────────────────
+# HuggingFace model cache
+# ─────────────────────────────────────────
+.cache/huggingface/
+
+# ─────────────────────────────────────────
 # Docker
+# ─────────────────────────────────────────
 .docker/
 docker-compose.override.yml
-
-# Artifacts
-artifacts/
