@@ -97,6 +97,25 @@ class RedirectsEvidence(BaseModel):
     final_url: Optional[str] = None
     redirect_count: int = 0
 
+class PlaywrightEvidence(BaseModel):
+    screenshot_path: Optional[str] = None
+    full_page_screenshot_path: Optional[str] = None
+    rendered_html: Optional[str] = None
+    final_url: Optional[str] = None
+    page_title: Optional[str] = None
+    visible_text: Optional[str] = None
+    meta_description: Optional[str] = None
+    viewport_size: Optional[Dict[str, int]] = None
+    page_dimensions: Optional[Dict[str, int]] = None
+    cookies: List[Dict[str, Any]] = Field(default_factory=list)
+    local_storage: Dict[str, str] = Field(default_factory=dict)
+    session_storage: Dict[str, str] = Field(default_factory=dict)
+    console_errors: List[str] = Field(default_factory=list)
+    failed_requests: List[Dict[str, Any]] = Field(default_factory=list)
+    total_request_count: int = 0
+    js_redirects_detected: bool = False
+    load_time_ms: float = 0.0
+
 class ScreenshotEvidence(BaseModel):
     screenshot_path: Optional[str] = None
     screenshot_size_bytes: Optional[int] = None
@@ -130,5 +149,6 @@ class Evidence(BaseModel):
     headers: Optional[HeadersEvidence] = Field(default=None, description="Response headers telemetry")
     redirects: Optional[RedirectsEvidence] = Field(default=None, description="Redirect trace logs details")
     screenshot: Optional[ScreenshotEvidence] = Field(default=None, description="Headless browser screenshot details")
+    playwright: Optional[PlaywrightEvidence] = Field(default=None, description="Playwright browser rendering details")
     ocr: Optional[OCREvidence] = Field(default=None, description="OCR text extracted from screenshot details")
     collection_summary: Optional[CollectionSummary] = Field(default=None, description="Consolidated metrics about the run")

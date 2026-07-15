@@ -2,9 +2,12 @@ from abc import ABC, abstractmethod
 import time
 import httpx
 import asyncio
+import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 from app.schemas.evidence import CollectorResult
 
 # Shared cache for webpage retrieval results to prevent duplicate HTTP requests
@@ -344,13 +347,181 @@ class HTMLCollector(BaseCollector):
                 timestamp=datetime.now(timezone.utc)
             )
 
+class PlaywrightCollector(BaseCollector):
+    def __init__(self, timeout_sec: float = 30.0) -> None:
+        self.timeout_sec = timeout_sec
+
+    @property
+    def name(self) -> str:
+        return "playwright"
+
+    async def collect(self, url: str) -> CollectorResult:
+        start_time = time.perf_counter()
+        errors = []
+        
+        browser = None
+        context = None
+        
+        screenshot_path = None
+        full_page_screenshot_path = None
+        rendered_html = ""
+        final_url = url
+        page_title = ""
+        visible_text = ""
+        meta_description = None
+        viewport_size = {"width": 1280, "height": 800}
+        page_dimensions = {"width": 1280, "height": 800}
+        cookies = []
+        local_storage = {}
+        session_storage = {}
+        console_errors = []
+        failed_requests = []
+        total_request_count = 0
+        js_redirects_detected = False
+        
+        try:
+            async with async_playwright() as p:
+                try:
+                    browser = await p.chromium.launch(headless=True)
+                except Exception as e:
+                    raise RuntimeError(f"Browser launch failure: {str(e)}")
+                    
+                try:
+                    context = await browser.new_context(viewport={"width": 1280, "height": 800})
+                    page = await context.new_page()
+                except Exception as e:
+                    raise RuntimeError(f"Page/Context initialization failure: {str(e)}")
+                
+                # Attach listeners
+                page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+                
+                def on_request(req):
+                    nonlocal total_request_count
+                    total_request_count += 1
+                page.on("request", on_request)
+                
+                def on_request_failed(req):
+                    failed_requests.append({
+                        "url": req.url,
+                        "error_text": req.failure.error_text if req.failure else "Unknown request failure"
+                    })
+                page.on("requestfailed", on_request_failed)
+                
+                # Navigate to URL
+                try:
+                    await page.goto(url, wait_until="networkidle", timeout=self.timeout_sec * 1000)
+                except Exception as e:
+                    raise RuntimeError(f"Navigation failure: {str(e)}")
+                
+                load_time_ms = (time.perf_counter() - start_time) * 1000
+                
+                final_url = page.url
+                js_redirects_detected = (final_url != url)
+                
+                page_title = await page.title()
+                rendered_html = await page.content()
+                
+                try:
+                    meta_desc_element = await page.query_selector('meta[name="description"]')
+                    meta_description = await meta_desc_element.get_attribute("content") if meta_desc_element else None
+                except Exception:
+                    meta_description = None
+                    
+                try:
+                    visible_text = await page.evaluate("() => document.body.innerText")
+                except Exception:
+                    visible_text = ""
+                    
+                try:
+                    viewport_size = page.viewport_size
+                    page_dimensions = await page.evaluate("() => { return { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }; }")
+                except Exception:
+                    pass
+                    
+                try:
+                    cookies = await context.cookies()
+                except Exception:
+                    cookies = []
+                    
+                try:
+                    local_storage = await page.evaluate("() => { return { ...localStorage }; }")
+                    session_storage = await page.evaluate("() => { return { ...sessionStorage }; }")
+                except Exception:
+                    pass
+                
+                # Screenshots storage using UUID
+                screenshot_dir = Path("artifacts/screenshots")
+                screenshot_dir.mkdir(parents=True, exist_ok=True)
+                
+                shot_uuid = uuid.uuid4()
+                screenshot_file = screenshot_dir / f"{shot_uuid}.png"
+                full_page_screenshot_file = screenshot_dir / f"{shot_uuid}_full.png"
+                
+                try:
+                    await page.screenshot(path=str(screenshot_file), full_page=False)
+                    screenshot_path = str(screenshot_file.resolve())
+                except Exception as e:
+                    errors.append(f"ScreenshotCaptureError: Failed standard screenshot: {str(e)}")
+                    
+                try:
+                    await page.screenshot(path=str(full_page_screenshot_file), full_page=True)
+                    full_page_screenshot_path = str(full_page_screenshot_file.resolve())
+                except Exception as e:
+                    errors.append(f"ScreenshotCaptureError: Failed full page screenshot: {str(e)}")
+                
+                await context.close()
+                await browser.close()
+                
+            elapsed_time_ms = (time.perf_counter() - start_time) * 1000
+            
+            data = {
+                "screenshot_path": screenshot_path,
+                "full_page_screenshot_path": full_page_screenshot_path,
+                "rendered_html": rendered_html,
+                "final_url": final_url,
+                "page_title": page_title,
+                "visible_text": visible_text,
+                "meta_description": meta_description,
+                "viewport_size": viewport_size,
+                "page_dimensions": page_dimensions,
+                "cookies": cookies,
+                "local_storage": local_storage,
+                "session_storage": session_storage,
+                "console_errors": console_errors,
+                "failed_requests": failed_requests,
+                "total_request_count": total_request_count,
+                "js_redirects_detected": js_redirects_detected,
+                "load_time_ms": load_time_ms
+            }
+            
+            return CollectorResult(
+                collector_name=self.name,
+                success=True,
+                execution_time_ms=round(elapsed_time_ms, 2),
+                data=data,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+        except Exception as e:
+            elapsed_time_ms = (time.perf_counter() - start_time) * 1000
+            errors.append(f"PlaywrightException: {type(e).__name__}: {str(e)}")
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(elapsed_time_ms, 2),
+                data=None,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
+
 class ScreenshotCollector(BaseCollector):
     @property
     def name(self) -> str:
         return "screenshot"
 
     async def collect(self, url: str) -> CollectorResult:
-        raise NotImplementedError("ScreenshotCollector not implemented.")
+        raise NotImplementedError("ScreenshotCollector is deprecated. Use PlaywrightCollector instead.")
 
 class OCRCollector(BaseCollector):
     @property

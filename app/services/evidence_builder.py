@@ -12,6 +12,7 @@ from app.schemas.evidence import (
     HeadersEvidence,
     RedirectsEvidence,
     ScreenshotEvidence,
+    PlaywrightEvidence,
     OCREvidence,
     CollectionSummary,
 )
@@ -38,6 +39,7 @@ class EvidenceBuilder:
         headers = None
         redirects = None
         screenshot = None
+        playwright = None
         ocr = None
         
         success_count = 0
@@ -73,6 +75,8 @@ class EvidenceBuilder:
                         redirects = RedirectsEvidence(**data)
                     elif res.collector_name == "screenshot":
                         screenshot = ScreenshotEvidence(**data)
+                    elif res.collector_name == "playwright":
+                        playwright = PlaywrightEvidence(**data)
                     elif res.collector_name == "ocr":
                         ocr = OCREvidence(**data)
                 except Exception as e:
@@ -104,6 +108,7 @@ class EvidenceBuilder:
             headers=headers,
             redirects=redirects,
             screenshot=screenshot,
+            playwright=playwright,
             ocr=ocr,
             collection_summary=summary
         )
