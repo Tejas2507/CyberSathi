@@ -117,11 +117,21 @@ class EvidenceBuilder:
         viewport_screenshot_path = playwright.screenshot_path if playwright else None
         fullpage_screenshot_path = playwright.full_page_screenshot_path if playwright else None
         
-        # Strip large raw and rendered HTML strings from submodels in final Evidence object
+        # Strip large raw/rendered HTML and internal/noisy metadata from final Evidence object
         if website:
             website.response_html = None
+            website.response_headers = {}
+            website.cookies = {}
+            website.server = None
+        if ssl:
+            ssl.cipher = None
+            ssl.tls_version = None
+            ssl.san = []
         if playwright:
             playwright.rendered_html = None
+            playwright.cookies = []
+            playwright.local_storage = {}
+            playwright.session_storage = {}
             
         return Evidence(
             url=url,

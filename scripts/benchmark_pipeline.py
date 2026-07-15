@@ -42,14 +42,12 @@ async def run_single_pipeline(url: str, wait_until: str = "networkidle", capture
     playwright_collector = PlaywrightCollector(timeout_sec=30.0, wait_until=wait_until, capture_full_page=capture_full_page)
     whois_collector = WHOISCollector()
     ssl_collector = SSLCollector()
-    dns_collector = DNSCollector()
     
     orchestrator.register_collector(website_collector, timeout_sec=15.0)
     orchestrator.register_collector(html_collector, timeout_sec=20.0)
     orchestrator.register_collector(playwright_collector, timeout_sec=35.0)
     orchestrator.register_collector(whois_collector, timeout_sec=15.0)
     orchestrator.register_collector(ssl_collector, timeout_sec=10.0)
-    orchestrator.register_collector(dns_collector, timeout_sec=10.0)
     
     # 3. Execute
     start_pipeline = time.perf_counter()

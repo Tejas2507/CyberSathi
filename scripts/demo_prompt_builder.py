@@ -15,7 +15,7 @@ from app.services.collectors import (
 )
 from app.services.evidence_orchestrator import EvidenceOrchestrator
 from app.services.evidence_builder import EvidenceBuilder
-from app.prompts.prompt_builder import build_security_prompt, estimate_tokens
+from app.prompts.forensic_report_builder import build_security_prompt, estimate_tokens, PromptBundle
 from app.schemas.safety import ClassifierResult
 from app.settings import settings
 
@@ -78,25 +78,23 @@ async def main():
         print(f" - {name}: {dur:.2f} ms")
     print(f" - Total Pipeline execution: {pipeline_duration_ms:.2f} ms")
     
-    # 5. Generate Prompt 1
-    print("\n[Step 6] Generating Forensic Assessment Prompt (Template 1)...")
-    prompt_text, structured_evidence, screenshot_path = build_security_prompt(evidence)
-    
-    prompt_length = len(prompt_text)
-    token_est = estimate_tokens(prompt_text)
+    # 5. Generate Prompt 1 (PromptBundle)
+    print("\n[Step 6] Generating Forensic Assessment Prompt Bundle (Prompt 1)...")
+    bundle = build_security_prompt(evidence)
     
     print("\n" + "=" * 50)
-    print("PROMPT STATISTICS")
+    print("PROMPT STATISTICS (PROMPT BUNDLE)")
     print("=" * 50)
-    print(f"Prompt length (chars): {prompt_length}")
-    print(f"Estimated token count: {token_est}")
-    print(f"Screenshot path: {screenshot_path or 'None'}")
+    print(f"Character Count: {len(bundle.text_prompt)}")
+    print(f"Estimated Tokens: {bundle.estimated_tokens}")
+    print(f"Image Count: {bundle.image_count}")
+    print(f"Image Attachments (Paths): {bundle.image_paths}")
     
     print("\n" + "=" * 50)
     print("PROMPT PREVIEW (First 2000 Chars)")
     print("=" * 50)
-    print(prompt_text[:2000])
-    if len(prompt_text) > 2000:
+    print(bundle.text_prompt[:2000])
+    if len(bundle.text_prompt) > 2000:
         print("\n... [truncated] ...")
     print("=" * 80)
     
