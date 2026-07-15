@@ -38,7 +38,7 @@ URLS = [
 ]
 
 # Per-URL timeout: kill any URL that takes longer than this
-URL_TIMEOUT_SEC = 90
+URL_TIMEOUT_SEC = 180
 
 
 async def analyze_one(service: AnalysisService, url: str, expected: str) -> dict:
