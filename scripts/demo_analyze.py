@@ -115,8 +115,9 @@ async def main() -> None:
     else:
         urls = DEFAULT_TEST_URLS
 
+    from app.settings import settings
     print("\n🔍 CyberSathi — Phishing Detection Demo")
-    print(f"   Model    : gemini-2.0-flash (adaptive pipeline)")
+    print(f"   Model    : {settings.GEMINI_MODEL} (adaptive pipeline)")
     print(f"   URLs     : {len(urls)}")
     print(f"   Cache bypass: {bypass_cache}\n")
 
