@@ -18,13 +18,8 @@ def estimate_tokens(text: str) -> int:
 def build_security_prompt(evidence: Evidence) -> PromptBundle:
     """
     Builds the forensic report (Prompt 1) for LLM consumption.
-    The layout orders evidence by importance:
-      1. Viewport Screenshot (attached)
-      2. Rendered Visible Text
-      3. ML Classifier Assessment
-      4. WHOIS
-      5. SSL
-      6. Website Summary / HTML Metadata
+    The LLM acts as an adaptive verifier. If evidence is sufficient,
+    it returns requires_more_evidence=false. Else it requests the screenshot.
     """
     website = evidence.website
     whois = evidence.whois
@@ -39,34 +34,31 @@ def build_security_prompt(evidence: Evidence) -> PromptBundle:
         
     # Viewport screenshot setup
     image_paths = []
+    has_screenshot = False
     if evidence.viewport_screenshot_path:
         image_paths.append(Path(evidence.viewport_screenshot_path))
+        has_screenshot = True
         
-    # Build ordered report body
+    # Build report body
     lines = [
-        "You are an experienced cybersecurity analyst specializing in phishing detection.",
-        "You have been provided with:",
-        "1. A machine learning phishing assessment.",
-        "2. Evidence collected from browser rendering, webpage analysis, WHOIS records and SSL metadata.",
-        "3. A screenshot of the rendered webpage.",
-        "",
-        "The machine learning prediction is ONLY an initial assessment.",
+        "You are an experienced cybersecurity analyst.",
+        "You have received an initial machine-learning assessment and a collection of website evidence.",
+        "The machine learning classifier is only an initial signal.",
         "Do NOT assume it is correct.",
-        "Review ALL evidence independently.",
-        "If the evidence contradicts the classifier, explain why.",
-        "",
-        "Return ONLY valid JSON.",
-        "Do NOT return markdown.",
-        "Do NOT return code blocks.",
-        "Do NOT reveal chain of thought.",
-        "Provide concise evidence-based justification.",
+        "Your task is to determine whether the currently available evidence is sufficient to confidently classify the website.",
+        "If it is sufficient, return a verdict.",
+        "If it is NOT sufficient, request only the additional evidence that is actually required.",
+        "Never request unnecessary evidence.",
+        "Return STRICT JSON only.",
+        "Do not return markdown.",
+        "Do not reveal chain-of-thought.",
         "",
         "==================================================",
         "FORENSIC EVIDENCE REPORT",
         "==================================================",
         "",
         "--- 1. Viewport Screenshot ---",
-        "A rendered screenshot of the webpage has been attached.",
+        "A rendered screenshot of the webpage has been attached." if has_screenshot else "A rendered screenshot of the webpage is NOT attached yet.",
         "",
         "--- 2. Rendered Visible Text ---",
         f"{playwright.visible_text[:2000] if playwright and playwright.visible_text else 'None'}",
@@ -107,7 +99,7 @@ def build_security_prompt(evidence: Evidence) -> PromptBundle:
         f"Failed Requests: {len(playwright.failed_requests) if playwright and playwright.failed_requests else 0}",
         f"Page Load Time: {playwright.load_time_ms if playwright and playwright.load_time_ms is not None else 'N/A'} ms",
         "",
-        "A rendered screenshot of the webpage is attached.",
+        "A rendered screenshot of the webpage is attached." if has_screenshot else "A rendered screenshot of the webpage is NOT attached.",
         "",
         "==================================================",
         "JSON SCHEMA SPECIFICATION",
@@ -125,8 +117,14 @@ def build_security_prompt(evidence: Evidence) -> PromptBundle:
         '    "concise evidence bullet 2"',
         '  ],',
         '  "summary": "string",',
+        '  "requires_more_evidence": bool,',
+        '  "required_evidence": ["viewport_screenshot"],',
         '  "requires_guidance": bool',
-        "}"
+        "}",
+        "Rules:",
+        "- If confidence is high, requires_more_evidence must be false.",
+        "- If confidence is low, requires_more_evidence must be true.",
+        "- required_evidence may contain 'viewport_screenshot' only."
     ]
     
     text_prompt = "\n".join(lines)
