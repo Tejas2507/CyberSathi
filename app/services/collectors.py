@@ -1,8 +1,15 @@
 from abc import ABC, abstractmethod
 import time
 import httpx
+import asyncio
 from datetime import datetime, timezone
+from urllib.parse import urljoin, urlparse
+from bs4 import BeautifulSoup
 from app.schemas.evidence import CollectorResult
+
+# Shared cache for webpage retrieval results to prevent duplicate HTTP requests
+WEBSITE_HTML_CACHE = {}
+WEBSITE_HTML_EVENTS = {}
 
 class BaseCollector(ABC):
     """
@@ -33,6 +40,9 @@ class WebsiteCollector(BaseCollector):
         return "website"
 
     async def collect(self, url: str) -> CollectorResult:
+        if url not in WEBSITE_HTML_EVENTS:
+            WEBSITE_HTML_EVENTS[url] = asyncio.Event()
+            
         errors = []
         start_time = time.perf_counter()
         
@@ -66,6 +76,10 @@ class WebsiteCollector(BaseCollector):
                 "elapsed_time": elapsed_time_ms
             }
             
+            # Populate shared cache for downstream HTML/Metadata collectors
+            WEBSITE_HTML_CACHE[url] = data
+            WEBSITE_HTML_EVENTS[url].set()
+            
             return CollectorResult(
                 collector_name=self.name,
                 success=True,
@@ -97,6 +111,10 @@ class WebsiteCollector(BaseCollector):
         except Exception as e:
             elapsed_time_ms = (time.perf_counter() - start_time) * 1000
             errors.append(f"UnexpectedError: {type(e).__name__}: {str(e)}")
+            
+        # Ensure event settles even on failure so dependent collectors don't block forever
+        if url in WEBSITE_HTML_EVENTS:
+            WEBSITE_HTML_EVENTS[url].set()
             
         return CollectorResult(
             collector_name=self.name,
@@ -137,7 +155,194 @@ class HTMLCollector(BaseCollector):
         return "html"
 
     async def collect(self, url: str) -> CollectorResult:
-        raise NotImplementedError("HTMLCollector not implemented.")
+        start_time = time.perf_counter()
+        
+        # Initialize event if not present to avoid race conditions
+        if url not in WEBSITE_HTML_EVENTS:
+            WEBSITE_HTML_EVENTS[url] = asyncio.Event()
+            
+        # Wait for WebsiteCollector to finish fetching HTML
+        try:
+            await asyncio.wait_for(WEBSITE_HTML_EVENTS[url].wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(duration_ms, 2),
+                data=None,
+                errors=["TimeoutError: Waiting for WebsiteCollector timed out."],
+                timestamp=datetime.now(timezone.utc)
+            )
+
+        # Retrieve crawled response HTML from shared cache
+        web_data = WEBSITE_HTML_CACHE.get(url)
+        if not web_data or not web_data.get("response_html"):
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(duration_ms, 2),
+                data=None,
+                errors=["DependencyError: WebsiteCollector failed or returned no HTML data."],
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+        html_content = web_data["response_html"]
+        
+        try:
+            # Parse HTML content gracefully using bs4
+            soup = BeautifulSoup(html_content, "html.parser")
+            
+            page_title = soup.title.get_text().strip() if soup.title else None
+            
+            desc_tag = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+            meta_description = desc_tag.get("content", "").strip() if desc_tag and desc_tag.get("content") else None
+            
+            keywords_tag = soup.find("meta", attrs={"name": "keywords"})
+            meta_keywords = [k.strip() for k in keywords_tag.get("content", "").split(",") if k.strip()] if keywords_tag and keywords_tag.get("content") else []
+            
+            canonical_tag = soup.find("link", rel="canonical")
+            canonical_url = canonical_tag.get("href", "").strip() if canonical_tag and canonical_tag.get("href") else None
+            if canonical_url:
+                canonical_url = urljoin(url, canonical_url)
+                
+            forms = soup.find_all("form")
+            forms_count = len(forms)
+            form_actions = [urljoin(url, f.get("action", "").strip()) for f in forms if f.get("action")]
+            
+            password_input_count = len(soup.find_all("input", type="password"))
+            email_input_count = len(soup.find_all("input", type="email"))
+            telephone_input_count = len(soup.find_all("input", type="tel"))
+            hidden_input_count = len(soup.find_all("input", type="hidden"))
+            
+            button_count = len(soup.find_all("button")) + len(soup.find_all("input", type=["submit", "button"]))
+            anchor_count = len(soup.find_all("a"))
+            iframe_count = len(soup.find_all("iframe"))
+            image_count = len(soup.find_all("img"))
+            
+            external_script_count = len([s for s in soup.find_all("script") if s.get("src")])
+            inline_script_count = len([s for s in soup.find_all("script") if not s.get("src")])
+            
+            # Simple form intent detection logic
+            detected_login_form = False
+            detected_signup_form = False
+            detected_payment_form = False
+            detected_otp_form = False
+            
+            for form in forms:
+                form_html = str(form).lower()
+                has_password = form.find("input", type="password") is not None
+                
+                if has_password and any(k in form_html for k in ["login", "signin", "log-in", "sign-in"]):
+                    detected_login_form = True
+                
+                if any(k in form_html for k in ["signup", "register", "create account", "join", "sign-up"]):
+                    if has_password or "confirm" in form_html:
+                        detected_signup_form = True
+                        
+                if any(k in form_html for k in ["cardnumber", "cvv", "payment", "checkout", "billing", "credit card"]):
+                    detected_payment_form = True
+                    
+                if any(k in form_html for k in ["otp", "one-time", "passcode", "verification code", "2fa"]):
+                    detected_otp_form = True
+            
+            # Clean text extraction
+            text_soup = BeautifulSoup(html_content, "html.parser")
+            for element in text_soup(["script", "style", "noscript", "svg"]):
+                element.decompose()
+            raw_text = text_soup.get_text(separator=" ")
+            visible_text = " ".join(raw_text.split())
+            
+            # Favicon extraction
+            favicon_tag = soup.find("link", rel=lambda x: x and "icon" in x.lower())
+            favicon_url = favicon_tag.get("href", "").strip() if favicon_tag and favicon_tag.get("href") else None
+            if favicon_url:
+                favicon_url = urljoin(url, favicon_url)
+                
+            # Links extraction
+            hyperlinks = []
+            external_links = []
+            internal_links = []
+            parsed_base = urlparse(url)
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "").strip()
+                if href:
+                    abs_url = urljoin(url, href)
+                    hyperlinks.append(abs_url)
+                    
+                    parsed_link = urlparse(abs_url)
+                    if parsed_link.netloc and parsed_link.netloc != parsed_base.netloc:
+                        external_links.append(abs_url)
+                    else:
+                        internal_links.append(abs_url)
+                        
+            # Suspicious JS indicators extraction
+            suspicious_js_indicators = []
+            indicators = ["eval(", "document.write(", "window.location", "atob(", "btoa(", "base64"]
+            for script in soup.find_all("script"):
+                script_content = script.get_text() or ""
+                script_src = script.get("src", "")
+                for ind in indicators:
+                    if ind in script_content or ind in script_src:
+                        if ind not in suspicious_js_indicators:
+                            suspicious_js_indicators.append(ind)
+                            
+            # Legacy/compatibility fields
+            script_tags_count = len(soup.find_all("script"))
+            iframe_urls = [urljoin(url, iframe.get("src", "").strip()) for iframe in soup.find_all("iframe") if iframe.get("src")]
+
+            data = {
+                "page_title": page_title,
+                "meta_description": meta_description,
+                "meta_keywords": meta_keywords,
+                "canonical_url": canonical_url,
+                "forms_count": forms_count,
+                "form_actions": form_actions,
+                "password_input_count": password_input_count,
+                "email_input_count": email_input_count,
+                "telephone_input_count": telephone_input_count,
+                "hidden_input_count": hidden_input_count,
+                "button_count": button_count,
+                "anchor_count": anchor_count,
+                "iframe_count": iframe_count,
+                "image_count": image_count,
+                "external_script_count": external_script_count,
+                "inline_script_count": inline_script_count,
+                "detected_login_form": detected_login_form,
+                "detected_signup_form": detected_signup_form,
+                "detected_payment_form": detected_payment_form,
+                "detected_otp_form": detected_otp_form,
+                "visible_text": visible_text,
+                "favicon_url": favicon_url,
+                "hyperlinks": hyperlinks,
+                "suspicious_js_indicators": suspicious_js_indicators,
+                "external_links": external_links,
+                "internal_links": internal_links,
+                "script_tags_count": script_tags_count,
+                "iframe_urls": iframe_urls
+            }
+            
+            elapsed_time_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=True,
+                execution_time_ms=round(elapsed_time_ms, 2),
+                data=data,
+                errors=[],
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+        except Exception as e:
+            elapsed_time_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(elapsed_time_ms, 2),
+                data=None,
+                errors=[f"ParsingError: HTML parsing failed: {type(e).__name__}: {str(e)}"],
+                timestamp=datetime.now(timezone.utc)
+            )
 
 class ScreenshotCollector(BaseCollector):
     @property

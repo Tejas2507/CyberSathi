@@ -52,7 +52,31 @@ class DNSEvidence(BaseModel):
     txt_records: List[str] = Field(default_factory=list)
 
 class HTMLEvidence(BaseModel):
+    page_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    meta_keywords: List[str] = Field(default_factory=list)
+    canonical_url: Optional[str] = None
     forms_count: int = 0
+    form_actions: List[str] = Field(default_factory=list)
+    password_input_count: int = 0
+    email_input_count: int = 0
+    telephone_input_count: int = 0
+    hidden_input_count: int = 0
+    button_count: int = 0
+    anchor_count: int = 0
+    iframe_count: int = 0
+    image_count: int = 0
+    external_script_count: int = 0
+    inline_script_count: int = 0
+    detected_login_form: bool = False
+    detected_signup_form: bool = False
+    detected_payment_form: bool = False
+    detected_otp_form: bool = False
+    visible_text: Optional[str] = None
+    favicon_url: Optional[str] = None
+    hyperlinks: List[str] = Field(default_factory=list)
+    suspicious_js_indicators: List[str] = Field(default_factory=list)
+    # Legacy/compatibility fields
     external_links: List[str] = Field(default_factory=list)
     internal_links: List[str] = Field(default_factory=list)
     script_tags_count: int = 0
