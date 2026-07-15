@@ -54,3 +54,6 @@ active_env/
 # Docker
 .docker/
 docker-compose.override.yml
+
+# Artifacts
+artifacts/

@@ -151,4 +151,14 @@ class Evidence(BaseModel):
     screenshot: Optional[ScreenshotEvidence] = Field(default=None, description="Headless browser screenshot details")
     playwright: Optional[PlaywrightEvidence] = Field(default=None, description="Playwright browser rendering details")
     ocr: Optional[OCREvidence] = Field(default=None, description="OCR text extracted from screenshot details")
+    
+    # Authoritative HTML & Rendering fields for LLM Consumption
+    raw_html: Optional[str] = Field(default=None, description="Raw HTML response from WebsiteCollector")
+    rendered_html: Optional[str] = Field(default=None, description="Fully rendered DOM HTML from PlaywrightCollector")
+    primary_html: Optional[str] = Field(default=None, description="Authoritative HTML (rendered DOM if available, else raw)")
+    raw_visible_text: Optional[str] = Field(default=None, description="Visible text from raw HTML")
+    rendered_visible_text: Optional[str] = Field(default=None, description="Visible text from rendered DOM")
+    viewport_screenshot_path: Optional[str] = Field(default=None, description="Path to standard viewport screenshot")
+    fullpage_screenshot_path: Optional[str] = Field(default=None, description="Path to full page screenshot")
+    
     collection_summary: Optional[CollectionSummary] = Field(default=None, description="Consolidated metrics about the run")

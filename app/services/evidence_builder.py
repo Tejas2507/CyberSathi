@@ -96,6 +96,20 @@ class EvidenceBuilder:
             timestamp=datetime.now(timezone.utc)
         )
         
+        # Determine raw, rendered and primary HTML + texts
+        raw_html = website.response_html if website else None
+        rendered_html = playwright.rendered_html if playwright else None
+        
+        # Policy: If Playwright succeeds, rendered HTML becomes the primary HTML source.
+        # Else, automatically fall back to WebsiteCollector HTML.
+        primary_html = rendered_html if (playwright and rendered_html) else raw_html
+        
+        raw_visible_text = html.visible_text if html else None
+        rendered_visible_text = playwright.visible_text if playwright else None
+        
+        viewport_screenshot_path = playwright.screenshot_path if playwright else None
+        fullpage_screenshot_path = playwright.full_page_screenshot_path if playwright else None
+        
         return Evidence(
             url=url,
             prediction_result=prediction_result,
@@ -110,5 +124,12 @@ class EvidenceBuilder:
             screenshot=screenshot,
             playwright=playwright,
             ocr=ocr,
+            raw_html=raw_html,
+            rendered_html=rendered_html,
+            primary_html=primary_html,
+            raw_visible_text=raw_visible_text,
+            rendered_visible_text=rendered_visible_text,
+            viewport_screenshot_path=viewport_screenshot_path,
+            fullpage_screenshot_path=fullpage_screenshot_path,
             collection_summary=summary
         )
