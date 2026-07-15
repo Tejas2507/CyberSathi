@@ -3,6 +3,10 @@ import time
 import httpx
 import asyncio
 import uuid
+import whois
+import socket
+import ssl
+import dns.resolver
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
@@ -134,7 +138,101 @@ class SSLCollector(BaseCollector):
         return "ssl"
 
     async def collect(self, url: str) -> CollectorResult:
-        raise NotImplementedError("SSLCollector not implemented.")
+        start_time = time.perf_counter()
+        errors = []
+        try:
+            parsed = urlparse(url)
+            hostname = parsed.netloc or parsed.path
+            if ":" in hostname:
+                hostname = hostname.split(":")[0]
+                
+            if not hostname:
+                raise ValueError(f"Could not extract hostname from URL: {url}")
+                
+            def fetch_ssl():
+                context = ssl.create_default_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                with socket.create_connection((hostname, 443), timeout=5.0) as sock:
+                    with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                        return ssock.version(), ssock.cipher(), ssock.getpeercert(binary_form=False)
+            
+            def fetch_ssl_verified():
+                context = ssl.create_default_context()
+                with socket.create_connection((hostname, 443), timeout=5.0) as sock:
+                    with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                        return ssock.version(), ssock.cipher(), ssock.getpeercert(binary_form=False)
+                        
+            try:
+                tls_version, cipher_info, cert = await asyncio.to_thread(fetch_ssl_verified)
+            except Exception as e:
+                errors.append(f"SSLVerificationError: Verified handshake failed ({str(e)}). Retrying unverified.")
+                try:
+                    tls_version, cipher_info, cert = await asyncio.to_thread(fetch_ssl)
+                except Exception as e2:
+                    raise RuntimeError(f"Unverified SSL handshake also failed: {str(e2)}")
+                
+            def get_first_value(rdn_list, field_name):
+                for rdn in rdn_list:
+                    for item in rdn:
+                        if item[0] == field_name:
+                            return item[1]
+                return None
+
+            subject = ""
+            issuer = ""
+            org = None
+            san = []
+            valid_from = None
+            valid_to = None
+            
+            if cert:
+                subject_list = cert.get("subject", [])
+                issuer_list = cert.get("issuer", [])
+                subject = ", ".join([f"{item[0]}={item[1]}" for rdn in subject_list for item in rdn])
+                issuer = ", ".join([f"{item[0]}={item[1]}" for rdn in issuer_list for item in rdn])
+                org = get_first_value(subject_list, "organizationName")
+                san = [item[1] for item in cert.get("subjectAltName", []) if item[0] == "DNS"]
+                valid_from = cert.get("notBefore")
+                valid_to = cert.get("notAfter")
+            
+            data = {
+                "issuer": issuer or None,
+                "subject": subject or None,
+                "organization": org,
+                "san": san,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
+                "expiry": valid_to,
+                "tls_version": tls_version,
+                "cipher": cipher_info[0] if cipher_info else None,
+                "ssl_valid": len(errors) == 0,
+                "ssl_issuer": issuer or None,
+                "ssl_expiry": valid_to,
+                "ssl_subject": subject or None
+            }
+            
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=True,
+                execution_time_ms=round(duration_ms, 2),
+                data=data,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            errors.append(f"SSLError: {type(e).__name__}: {str(e)}")
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(duration_ms, 2),
+                data=None,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
 
 class WHOISCollector(BaseCollector):
     @property
@@ -142,7 +240,79 @@ class WHOISCollector(BaseCollector):
         return "whois"
 
     async def collect(self, url: str) -> CollectorResult:
-        raise NotImplementedError("WHOISCollector not implemented.")
+        start_time = time.perf_counter()
+        errors = []
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc or parsed.path
+            if ":" in domain:
+                domain = domain.split(":")[0]
+                
+            if not domain:
+                raise ValueError(f"Could not extract domain from URL: {url}")
+                
+            w = await asyncio.to_thread(whois.whois, domain)
+            
+            def normalize_date(d):
+                if isinstance(d, list):
+                    d = d[0] if d else None
+                if isinstance(d, datetime):
+                    return d.isoformat()
+                return str(d) if d else None
+
+            creation_date = normalize_date(w.creation_date)
+            expiration_date = normalize_date(w.expiration_date)
+            
+            registrar = w.registrar
+            if isinstance(registrar, list):
+                registrar = registrar[0] if registrar else None
+                
+            org = w.org or w.organization
+            if isinstance(org, list):
+                org = org[0] if org else None
+                
+            domain_age = None
+            if w.creation_date:
+                c_date = w.creation_date
+                if isinstance(c_date, list):
+                    c_date = c_date[0] if c_date else None
+                if isinstance(c_date, datetime):
+                    if c_date.tzinfo is not None:
+                        c_date = c_date.replace(tzinfo=None)
+                    domain_age = (datetime.now() - c_date).days
+            
+            data = {
+                "domain_age": domain_age,
+                "registrar": registrar,
+                "expiry": expiration_date,
+                "organization": org,
+                "creation_date": creation_date,
+                "age_days": domain_age,
+                "expiration_date": expiration_date,
+                "registrant_country": w.country if hasattr(w, "country") else None
+            }
+            
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=True,
+                execution_time_ms=round(duration_ms, 2),
+                data=data,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            errors.append(f"WHOISError: {type(e).__name__}: {str(e)}")
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(duration_ms, 2),
+                data=None,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
 
 class DNSCollector(BaseCollector):
     @property
@@ -150,7 +320,71 @@ class DNSCollector(BaseCollector):
         return "dns"
 
     async def collect(self, url: str) -> CollectorResult:
-        raise NotImplementedError("DNSCollector not implemented.")
+        start_time = time.perf_counter()
+        errors = []
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc or parsed.path
+            if ":" in domain:
+                domain = domain.split(":")[0]
+                
+            if not domain:
+                raise ValueError(f"Could not extract domain from URL: {url}")
+                
+            records = {
+                "A": [],
+                "AAAA": [],
+                "MX": [],
+                "NS": [],
+                "TXT": [],
+                "CNAME": []
+            }
+            
+            for rtype in records.keys():
+                try:
+                    answers = await asyncio.to_thread(dns.resolver.resolve, domain, rtype)
+                    for rdata in answers:
+                        if rtype == "MX":
+                            records[rtype].append(f"{rdata.preference} {rdata.exchange.to_text().rstrip('.')}")
+                        elif rtype in ("A", "AAAA", "NS", "TXT", "CNAME"):
+                            records[rtype].append(rdata.to_text().strip('"'))
+                except Exception:
+                    pass
+            
+            data = {
+                "A": records["A"],
+                "AAAA": records["AAAA"],
+                "MX": records["MX"],
+                "NS": records["NS"],
+                "TXT": records["TXT"],
+                "CNAME": records["CNAME"],
+                "a_records": records["A"],
+                "mx_records": records["MX"],
+                "ns_records": records["NS"],
+                "txt_records": records["TXT"]
+            }
+            
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return CollectorResult(
+                collector_name=self.name,
+                success=True,
+                execution_time_ms=round(duration_ms, 2),
+                data=data,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            errors.append(f"DNSError: {type(e).__name__}: {str(e)}")
+            return CollectorResult(
+                collector_name=self.name,
+                success=False,
+                execution_time_ms=round(duration_ms, 2),
+                data=None,
+                errors=errors,
+                timestamp=datetime.now(timezone.utc)
+            )
 
 class HTMLCollector(BaseCollector):
     @property
@@ -348,8 +582,10 @@ class HTMLCollector(BaseCollector):
             )
 
 class PlaywrightCollector(BaseCollector):
-    def __init__(self, timeout_sec: float = 30.0) -> None:
+    def __init__(self, timeout_sec: float = 30.0, wait_until: str = "networkidle", capture_full_page: bool = True) -> None:
         self.timeout_sec = timeout_sec
+        self.wait_until = wait_until
+        self.capture_full_page = capture_full_page
 
     @property
     def name(self) -> str:
@@ -401,15 +637,27 @@ class PlaywrightCollector(BaseCollector):
                 page.on("request", on_request)
                 
                 def on_request_failed(req):
+                    error_msg = "Unknown request failure"
+                    if req.failure:
+                        if isinstance(req.failure, str):
+                            error_msg = req.failure
+                        elif isinstance(req.failure, dict):
+                            error_msg = req.failure.get("error_text") or req.failure.get("errorText") or str(req.failure)
+                        elif hasattr(req.failure, "error_text"):
+                            error_msg = getattr(req.failure, "error_text")
+                        elif hasattr(req.failure, "errorText"):
+                            error_msg = getattr(req.failure, "errorText")
+                        else:
+                            error_msg = str(req.failure)
                     failed_requests.append({
                         "url": req.url,
-                        "error_text": req.failure.error_text if req.failure else "Unknown request failure"
+                        "error_text": error_msg
                     })
                 page.on("requestfailed", on_request_failed)
                 
                 # Navigate to URL
                 try:
-                    await page.goto(url, wait_until="networkidle", timeout=self.timeout_sec * 1000)
+                    await page.goto(url, wait_until=self.wait_until, timeout=self.timeout_sec * 1000)
                 except Exception as e:
                     raise RuntimeError(f"Navigation failure: {str(e)}")
                 
@@ -463,11 +711,12 @@ class PlaywrightCollector(BaseCollector):
                 except Exception as e:
                     errors.append(f"ScreenshotCaptureError: Failed standard screenshot: {str(e)}")
                     
-                try:
-                    await page.screenshot(path=str(full_page_screenshot_file), full_page=True)
-                    full_page_screenshot_path = str(full_page_screenshot_file.resolve())
-                except Exception as e:
-                    errors.append(f"ScreenshotCaptureError: Failed full page screenshot: {str(e)}")
+                if self.capture_full_page:
+                    try:
+                        await page.screenshot(path=str(full_page_screenshot_file), full_page=True)
+                        full_page_screenshot_path = str(full_page_screenshot_file.resolve())
+                    except Exception as e:
+                        errors.append(f"ScreenshotCaptureError: Failed full page screenshot: {str(e)}")
                 
                 await context.close()
                 await browser.close()

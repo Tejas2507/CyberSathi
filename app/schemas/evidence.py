@@ -33,19 +33,40 @@ class WebsiteEvidence(BaseModel):
     response_time_ms: Optional[float] = None
 
 class SSLEvidence(BaseModel):
+    issuer: Optional[str] = None
+    subject: Optional[str] = None
+    organization: Optional[str] = None
+    san: List[str] = Field(default_factory=list)
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    expiry: Optional[str] = None
+    tls_version: Optional[str] = None
+    cipher: Optional[str] = None
+    # Legacy/compatibility fields
     ssl_valid: bool = False
     ssl_issuer: Optional[str] = None
     ssl_expiry: Optional[str] = None
     ssl_subject: Optional[str] = None
 
 class WHOISEvidence(BaseModel):
+    domain_age: Optional[int] = None
     registrar: Optional[str] = None
+    expiry: Optional[str] = None
+    organization: Optional[str] = None
     creation_date: Optional[str] = None
-    expiration_date: Optional[str] = None
+    # Legacy/compatibility fields
     age_days: Optional[int] = None
+    expiration_date: Optional[str] = None
     registrant_country: Optional[str] = None
 
 class DNSEvidence(BaseModel):
+    A: List[str] = Field(default_factory=list)
+    AAAA: List[str] = Field(default_factory=list)
+    MX: List[str] = Field(default_factory=list)
+    NS: List[str] = Field(default_factory=list)
+    TXT: List[str] = Field(default_factory=list)
+    CNAME: List[str] = Field(default_factory=list)
+    # Legacy/compatibility fields
     a_records: List[str] = Field(default_factory=list)
     mx_records: List[str] = Field(default_factory=list)
     ns_records: List[str] = Field(default_factory=list)
