@@ -109,5 +109,5 @@ The completely rewritten [README.md](file:///Users/tejas/Documents/ET%20hackatho
 ## Repository Metadata
 
 - **GitHub Repository**: [https://github.com/Tejas2507/CyberSathi.git](https://github.com/Tejas2507/CyberSathi.git)
-- **Latest Commit Hash**: `9ace2d8`
-- **Commit Message**: `docs: add final verification walkthrough`
+- **Latest Commit Hash**: `89ca999`
+- **Commit Message**: `docs: update README and walkthrough for streaming NDJSON and defaulted phishing guidance`
