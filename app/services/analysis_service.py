@@ -190,7 +190,7 @@ class AnalysisService:
         # ----------------------------------------------------------------
         guidance_result: Optional[Dict[str, Any]] = None
 
-        requires_guidance = verdict_json.get("requires_guidance", False)
+        requires_guidance = verdict_json.get("requires_guidance", False) or verdict == "phishing"
 
         if requires_guidance and self._llm is not None:
             g_bundle = guidance_bundle or build_guidance_prompt(verdict_json)
@@ -297,7 +297,7 @@ class AnalysisService:
             model_version=settings.CLASSIFIER_MODEL_NAME
         )
 
-        status_str = "threat_suspected" if prediction_result.is_suspicious else "safe"
+        status_str = "phishing_suspected" if prediction_result.is_suspicious else "safe"
         yield {
             "event": "initial_assessment",
             "status": status_str,
@@ -367,7 +367,7 @@ class AnalysisService:
 
         # Guidance
         guidance_result = None
-        requires_guidance = verdict_json.get("requires_guidance", False)
+        requires_guidance = verdict_json.get("requires_guidance", False) or verdict == "phishing"
 
         if requires_guidance and self._llm is not None:
             g_bundle = guidance_bundle or build_guidance_prompt(verdict_json)

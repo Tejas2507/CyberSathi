@@ -133,7 +133,7 @@ async def main() -> None:
                 
                 if ev_type == "initial_assessment":
                     status_lbl = event.get("status", "").upper()
-                    icon = "✅ SAFE" if status_lbl == "SAFE" else "🚨 THREAT SUSPECTED"
+                    icon = "✅ SAFE" if status_lbl == "SAFE" else "🚨 PHISHING SUSPECTED"
                     print(f"   ├─ [Initial Assessment] {icon} (obtained in {elapsed_ms:.0f} ms)")
                 
                 elif ev_type == "collecting_evidence":

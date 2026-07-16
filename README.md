@@ -226,7 +226,7 @@ cp .env.example .env
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | ✅ Yes | — | Google Gemini API key |
-| `GEMINI_MODEL` | No | `gemini-2.0-flash` | Gemini model name |
+| `GEMINI_MODEL` | No | `gemini-flash-latest` | Gemini model name |
 | `LLM_TEMPERATURE` | No | `0.0` | LLM sampling temperature |
 | `CLASSIFIER_MODEL_NAME` | No | `CrabInHoney/urlbert-tiny-v4-phishing-classifier` | HuggingFace model |
 | `CLASSIFIER_THRESHOLD` | No | `0.75` | ML classifier confidence threshold |
@@ -262,7 +262,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 
 ### `POST /api/v1/analyze`
 
-Analyzes a URL for phishing using the full adaptive pipeline.
+Analyzes a URL for phishing and streams progress and results using **Newline-Delimited JSON (NDJSON)**.
 
 **Request:**
 ```json
@@ -277,12 +277,35 @@ Analyzes a URL for phishing using the full adaptive pipeline.
 | `url` | string (URL) | ✅ Yes | Fully-qualified URL to inspect |
 | `bypass_cache` | boolean | No | Skip local phishing DB cache |
 
-**Response:**
+**Response format (`application/x-ndjson`):**
+
+Each event is streamed as a single JSON object followed by a newline `\n`.
+
+#### 1. Initial Assessment Event (sub-second latency)
 ```json
 {
+  "event": "initial_assessment",
+  "status": "safe" | "phishing_suspected",
+  "risk_score": 0.94,
+  "cached": false
+}
+```
+
+#### 2. Progress Update Event (only if `status` is `phishing_suspected`)
+```json
+{
+  "event": "collecting_evidence",
+  "message": "Threat suspected. Gathering deep forensic evidence and invoking LLM..."
+}
+```
+
+#### 3. Final Result Event
+```json
+{
+  "event": "final_result",
   "url": "https://example-suspicious.com",
   "verdict": "phishing",
-  "confidence": 0.97,
+  "confidence": 0.95,
   "severity": "critical",
   "cached": false,
   "impersonated_entity": "State Bank of India",
