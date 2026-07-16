@@ -127,8 +127,21 @@ async def main() -> None:
         print(f"\n▶  Analyzing: {url}")
         t0 = time.perf_counter()
         try:
-            result = await service.analyze(url=url, bypass_cache=bypass_cache)
-            _pretty_print(result)
+            async for event in service.analyze_stream(url=url, bypass_cache=bypass_cache):
+                ev_type = event.get("event")
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+                
+                if ev_type == "initial_assessment":
+                    status_lbl = event.get("status", "").upper()
+                    icon = "✅ SAFE" if status_lbl == "SAFE" else "🚨 THREAT SUSPECTED"
+                    print(f"   ├─ [Initial Assessment] {icon} (obtained in {elapsed_ms:.0f} ms)")
+                
+                elif ev_type == "collecting_evidence":
+                    print(f"   ├─ [Deep Scan] {event.get('message')} (elapsed: {elapsed_ms:.0f} ms)")
+                
+                elif ev_type == "final_result":
+                    _pretty_print(event)
+                    
         except Exception as exc:
             print(f"  ❌ Error: {type(exc).__name__}: {exc}")
         elapsed = (time.perf_counter() - t0) * 1000

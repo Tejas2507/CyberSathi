@@ -6,7 +6,9 @@ FastAPI router for the phishing detection endpoint.
 
 from __future__ import annotations
 
+import json
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from app.logging import logger
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse
@@ -36,27 +38,23 @@ def get_analysis_service() -> AnalysisService:
         "screenshot → Stage 2 LLM → citizen safety guidance."
     ),
 )
-async def analyze_url(request: AnalyzeRequest) -> AnalyzeResponse:
+async def analyze_url(request: AnalyzeRequest):
     url = str(request.url)
     logger.info(f"[Router /analyze] Received request for URL: {url}")
 
     service = get_analysis_service()
 
-    try:
-        result = await service.analyze(url=url, bypass_cache=request.bypass_cache)
-    except LLMConfigurationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        )
-    except Exception as exc:
-        logger.exception(f"[Router /analyze] Unexpected error: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Analysis failed: {type(exc).__name__}: {exc}",
-        )
+    async def event_generator():
+        try:
+            async for event in service.analyze_stream(url=url, bypass_cache=request.bypass_cache):
+                yield json.dumps(event) + "\n"
+        except LLMConfigurationError as exc:
+            yield json.dumps({"event": "error", "message": f"LLM Configuration Error: {str(exc)}"}) + "\n"
+        except Exception as exc:
+            logger.exception(f"[Router /analyze] Error in stream: {exc}")
+            yield json.dumps({"event": "error", "message": f"Analysis failed: {type(exc).__name__}: {str(exc)}"}) + "\n"
 
-    return AnalyzeResponse(**result)
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 
 @router.get(

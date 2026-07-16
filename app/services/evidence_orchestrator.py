@@ -101,7 +101,8 @@ class EvidenceOrchestrator:
         self,
         url: str,
         detector: Any,
-        llm_caller: Callable[[str, Optional[List[Any]]], Any]
+        llm_caller: Callable[[str, Optional[List[Any]]], Any],
+        prediction_result: Optional[ClassifierResult] = None
     ) -> Dict[str, Any]:
         """
         Executes the latency-aware adaptive evidence acquisition pipeline.
@@ -113,9 +114,18 @@ class EvidenceOrchestrator:
         
         start_pipeline = time.perf_counter()
         
-        # 1. Start ML Classifier asynchronously in thread pool
+        # 1. Start ML Classifier asynchronously in thread pool (or use pre-computed result)
         classifier_start = time.perf_counter()
-        classifier_task = asyncio.create_task(asyncio.to_thread(detector.predict, url))
+        if prediction_result is not None:
+            raw_clf = {
+                "label": "phishing" if prediction_result.is_suspicious else "legitimate",
+                "probability": prediction_result.risk_score,
+                "confidence": prediction_result.confidence or 0.0
+            }
+            classifier_task = asyncio.Future()
+            classifier_task.set_result(raw_clf)
+        else:
+            classifier_task = asyncio.create_task(asyncio.to_thread(detector.predict, url))
         
         # 2. Start Playwright speculatively in background
         playwright_start = time.perf_counter()
@@ -174,6 +184,53 @@ class EvidenceOrchestrator:
                 
         evidence_stage1 = EvidenceBuilder.build(url, collector_results, prediction_result)
         
+        playwright_cancelled = False
+        playwright_already_completed = False
+        playwright_latency = 0.0
+
+        if not prediction_result.is_suspicious:
+            logger.info("[Adaptive Orchestrator] Fast Legitimate path activated (Classifier verdict is legitimate). Skipping LLM.")
+            if not playwright_task.done():
+                playwright_task.cancel()
+                playwright_cancelled = True
+            else:
+                playwright_already_completed = True
+                try:
+                    pw_res = await playwright_task
+                    playwright_latency = pw_res.execution_time_ms if pw_res else 0.0
+                except Exception:
+                    pass
+            
+            final_verdict_json = {
+                "verdict": "legitimate",
+                "confidence": prediction_result.confidence,
+                "severity": "low",
+                "impersonated_entity": "none",
+                "scam_category": "none",
+                "targeted_information": [],
+                "key_evidence": [
+                    f"URL classifier classified domain as legitimate with confidence {prediction_result.confidence:.2%}"
+                ],
+                "summary": "The initial machine learning classifier detected no signs of phishing or malicious patterns on this domain.",
+                "requires_more_evidence": False,
+                "requires_guidance": False
+            }
+            
+            total_pipeline_latency = (time.perf_counter() - start_pipeline) * 1000
+            
+            return {
+                "verdict_json": final_verdict_json,
+                "guidance_bundle": None,
+                "playwright_cancelled": playwright_cancelled,
+                "playwright_already_completed": playwright_already_completed,
+                "timings": {
+                    "fast_evidence_latency_ms": fast_evidence_latency,
+                    "prompt1_latency_ms": 0.0,
+                    "playwright_latency_ms": playwright_latency,
+                    "total_pipeline_latency_ms": total_pipeline_latency
+                }
+            }
+
         # Generate stage 1 prompt
         prompt_bundle1 = build_security_prompt(evidence_stage1)
         
@@ -190,9 +247,6 @@ class EvidenceOrchestrator:
         
         final_verdict_json = llm_response1
         prompt2_bundle = None
-        playwright_cancelled = False
-        playwright_already_completed = False
-        playwright_latency = 0.0
         
         # Case A: Sufficient fast evidence
         if not requires_more:
